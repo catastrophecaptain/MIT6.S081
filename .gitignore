@@ -23,3 +23,6 @@ ph
 barrier
 /lab-*.json
 .DS_Store
+/.vscode/
+/.gdbinit.tmpl-riscv.copy
+/time.txt
