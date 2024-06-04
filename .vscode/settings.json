@@ -1,8 +1,0 @@
-{
-    "files.associations": {
-        "*.txt": "code-text-binary",
-        "stat.h": "c",
-        "types.h": "c",
-        "cstdio": "c"
-    }
-}
