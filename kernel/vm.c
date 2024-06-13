@@ -449,3 +449,29 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+void vmprint(pagetable_t pgtbl)
+{
+  printf("page table %p\n", pgtbl);
+  vmprintlayer(pgtbl, 1);
+}
+void vmprintlayer(pagetable_t pgtbl, uint8 layer)
+{
+  if (layer >= 4)
+  {
+    return;
+  }
+  for (int i = 0; i < 512; i++)
+  {
+    pte_t pte = pgtbl[i];
+    if (pte & PTE_V)
+    {
+      uint64 child = PTE2PA(pte);
+      for(int i=0;i<layer;i++)
+      {
+        printf(" ..");
+      }
+      printf("%d: pte %p pa %p\n", i, pte, child);
+      vmprintlayer((pagetable_t)child, layer + 1);
+    }
+  }
+}

@@ -75,6 +75,33 @@ int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  uint32 mask=0;
+  uint64 raddr=0;
+  int n=0;
+  uint64 pg=0;
+  pte_t * pte=0;
+  argaddr(0,&pg);
+  argint(1,&n);
+  argaddr(2,&raddr);
+
+  if(n>32)
+  {
+    return -1;
+  }
+  n--;
+  pg+=n*PGSIZE;
+  for(;n>=0;n--)
+  {
+    pte=walk(myproc()->pagetable,pg,0);
+    if(pte!=0&&(*pte&PTE_A)!=0)
+    {
+      mask|=(1<<n);
+      *pte=*pte&(~PTE_A);
+    }
+    pg-=PGSIZE;
+  }
+  copyout(myproc()->pagetable,(uint64)raddr,(char *)&mask,sizeof(mask));
+  sfence_vma();
   return 0;
 }
 #endif
