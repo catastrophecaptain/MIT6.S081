@@ -7,6 +7,23 @@
 #include "proc.h"
 
 uint64
+sys_sigalarm(void)
+{
+  struct proc *p = myproc();
+  argint(0, &(p->interval));
+  argaddr(1, &(p->invoke));
+  return 0;
+}
+uint64
+sys_sigreturn(void)
+{
+  struct proc *p = myproc();
+  *p->trapframe = p->alarm_state;
+  p->alarm_r = 1;
+  return p->trapframe->a0;
+}
+
+uint64
 sys_exit(void)
 {
   int n;
@@ -53,7 +70,7 @@ sys_sleep(void)
 {
   int n;
   uint ticks0;
-
+  backtrace();
   argint(0, &n);
   if(n < 0)
     n = 0;

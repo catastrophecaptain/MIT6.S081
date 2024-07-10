@@ -25,6 +25,19 @@ static struct {
 
 static char digits[] = "0123456789abcdef";
 
+void
+backtrace()
+{
+  uint64 fp = r_fp();
+  struct proc *p = myproc();
+  printf("backtrace:\n");
+  while (fp != p->trapframe->kernel_sp)
+  {
+    printf("%p\n", *(((uint64 *)fp) - 1)-2);
+    fp = *(((uint64 *)fp) - 2);
+  }
+}
+
 static void
 printint(int xx, int base, int sign)
 {
@@ -119,6 +132,7 @@ void
 panic(char *s)
 {
   pr.locking = 0;
+  backtrace();
   printf("panic: ");
   printf(s);
   printf("\n");
