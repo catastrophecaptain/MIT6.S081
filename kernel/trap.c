@@ -65,7 +65,37 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  }
+  else if (r_scause() == 15)
+  {
+    uint64 addr = PGROUNDDOWN(r_stval());
+    pte_t *pte = walk(p->pagetable, addr, 0);
+    uint64 page = PTE2PA(*pte);
+    if (pte != 0 && addr < p->sz + PGSIZE && *pte & PTE_WA && (!(*pte & PTE_W)) && *pte & PTE_V && *pte & PTE_U)
+    {
+      uint16 ref = kref((void *)page);
+      if (ref == 0)
+      {
+        *pte |= PTE_W;
+        *pte &= ~PTE_WA;
+      }
+      else
+      {
+        uint64 pa = (uint64)kalloc();
+        if (pa == 0)
+        {
+          printf("usertrap(): out of memory\n");
+          setkilled(p);
+        }
+        memmove((void *)pa, (void *)page, PGSIZE);
+        *pte = PA2PTE(pa) | PTE_FLAGS(*pte);
+        *pte &= ~PTE_WA;
+        *pte |= PTE_W;
+        krefdec((void *)page);
+      }
+    }
+  }
+  else if((which_dev = devintr()) != 0){
     // ok
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);

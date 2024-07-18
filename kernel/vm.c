@@ -333,8 +333,10 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       flags |= PTE_WA;
       flags &= ~PTE_W;
     }
+    *pte=PA2PTE((uint64)pa) | flags;
+    krefinc((void *)pa); 
     if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
-      // kfree(mem);
+      kfree((void *)pa);
       goto err;
     }
   }
@@ -367,14 +369,43 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   uint64 n, va0, pa0;
   pte_t *pte;
 
-  while(len > 0){
+  while (len > 0)
+  {
     va0 = PGROUNDDOWN(dstva);
-    if(va0 >= MAXVA)
+    if (va0 >= MAXVA)
       return -1;
     pte = walk(pagetable, va0, 0);
-    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 ||
-       (*pte & PTE_W) == 0)
+    if (pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
+    {
       return -1;
+    }
+    uint64 page = PTE2PA(*pte);
+    if (*pte & PTE_WA && (!(*pte & PTE_W)))
+    {
+      uint16 ref = kref((void *)page);
+      if (ref == 0)
+      {
+        *pte |= PTE_W;
+        *pte &= ~PTE_WA;
+      }
+      else
+      {
+        uint64 pa = (uint64)kalloc();
+        if (pa == 0)
+        {
+          printf("usertrap(): out of memory\n");
+          return -1;
+        }
+        memmove((void *)pa, (void *)page, PGSIZE);
+        *pte = PA2PTE(pa) | PTE_FLAGS(*pte);
+        *pte &= ~PTE_WA;
+        *pte |= PTE_W;
+        krefdec((void *)page);
+      }
+    }else if((!(*pte & PTE_W)))
+    {
+      return -1;
+    }
     pa0 = PTE2PA(*pte);
     n = PGSIZE - (dstva - va0);
     if(n > len)
