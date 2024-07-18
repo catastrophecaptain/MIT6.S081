@@ -14,6 +14,7 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
+static uint16 pg_refcount[(PHYSTOP - KERNBASE) / PGSIZE]={0};
 struct run {
   struct run *next;
 };
@@ -52,6 +53,11 @@ kfree(void *pa)
     panic("kfree");
 
   // Fill with junk to catch dangling refs.
+  if(pg_refcount[((uint64)pa - KERNBASE) / PGSIZE] > 0)
+  {
+    pg_refcount[((uint64)pa - KERNBASE) / PGSIZE]--;
+    return;
+  }
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
@@ -79,4 +85,22 @@ kalloc(void)
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+void krefinc(void *pa)
+{
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+    panic("krefinc");
+  pg_refcount[((uint64)pa - KERNBASE) / PGSIZE]++;
+}
+void krefdec(void *pa)
+{
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+    panic("krefdec");
+  pg_refcount[((uint64)pa - KERNBASE) / PGSIZE]--;
+}
+uint16 kref(void *pa)
+{
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+    panic("kref");
+  return pg_refcount[((uint64)pa - KERNBASE) / PGSIZE];
 }
