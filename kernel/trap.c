@@ -69,30 +69,45 @@ usertrap(void)
   else if (r_scause() == 15)
   {
     uint64 addr = PGROUNDDOWN(r_stval());
-    pte_t *pte = walk(p->pagetable, addr, 0);
-    uint64 page = PTE2PA(*pte);
-    if (pte != 0 && addr < p->sz + PGSIZE && *pte & PTE_WA && (!(*pte & PTE_W)) && *pte & PTE_V && *pte & PTE_U)
+    if (addr < MAXVA)
     {
-      uint16 ref = kref((void *)page);
-      if (ref == 0)
+      pte_t *pte = walk(p->pagetable, addr, 0);
+      uint64 page = PTE2PA(*pte);
+      if (pte != 0 && addr < p->sz + PGSIZE && *pte & PTE_WA && (!(*pte & PTE_W)) && *pte & PTE_V && *pte & PTE_U)
       {
-        *pte |= PTE_W;
-        *pte &= ~PTE_WA;
+          uint64 pa = (uint64)kalloc();
+          if (pa == 0)
+          {
+            printf("usertrap(): out of memory\n");
+            setkilled(p);
+          }
+          memmove((void *)pa, (void *)page, PGSIZE);
+        uint16 ref = krefdec((void *)page);
+        if (ref == 0)
+        {
+          kfree((void *)pa);
+          *pte |= PTE_W;
+          *pte &= ~PTE_WA;
+        }
+        else
+        {
+          *pte = PA2PTE(pa) | PTE_FLAGS(*pte);
+          *pte &= ~PTE_WA;
+          *pte |= PTE_W;
+        }
       }
       else
       {
-        uint64 pa = (uint64)kalloc();
-        if (pa == 0)
-        {
-          printf("usertrap(): out of memory\n");
-          setkilled(p);
-        }
-        memmove((void *)pa, (void *)page, PGSIZE);
-        *pte = PA2PTE(pa) | PTE_FLAGS(*pte);
-        *pte &= ~PTE_WA;
-        *pte |= PTE_W;
-        krefdec((void *)page);
+        printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+        printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+        setkilled(p);
       }
+    }
+    else
+    {
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      setkilled(p);
     }
   }
   else if((which_dev = devintr()) != 0){

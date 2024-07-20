@@ -382,27 +382,28 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     uint64 page = PTE2PA(*pte);
     if (*pte & PTE_WA && (!(*pte & PTE_W)))
     {
-      uint16 ref = kref((void *)page);
+      uint64 pa = (uint64)kalloc();
+      if (pa == 0)
+      {
+        printf("usertrap(): out of memory\n");
+        return -1;
+      }
+      memmove((void *)pa, (void *)page, PGSIZE);
+      uint16 ref = krefdec((void *)page);
       if (ref == 0)
       {
+        kfree((void *)pa);
         *pte |= PTE_W;
         *pte &= ~PTE_WA;
       }
       else
       {
-        uint64 pa = (uint64)kalloc();
-        if (pa == 0)
-        {
-          printf("usertrap(): out of memory\n");
-          return -1;
-        }
-        memmove((void *)pa, (void *)page, PGSIZE);
         *pte = PA2PTE(pa) | PTE_FLAGS(*pte);
         *pte &= ~PTE_WA;
         *pte |= PTE_W;
-        krefdec((void *)page);
       }
-    }else if((!(*pte & PTE_W)))
+    }
+    else if ((!(*pte & PTE_W)))
     {
       return -1;
     }

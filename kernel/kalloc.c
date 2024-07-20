@@ -20,6 +20,7 @@ struct run {
 };
 
 struct {
+  struct spinlock reflock;
   struct spinlock lock;
   struct run *freelist;
 } kmem;
@@ -28,6 +29,7 @@ void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&kmem.reflock, "reflock");
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -51,13 +53,15 @@ kfree(void *pa)
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
-
+  acquire(&kmem.reflock);
   // Fill with junk to catch dangling refs.
-  if(pg_refcount[((uint64)pa - KERNBASE) / PGSIZE] > 0)
+  if (pg_refcount[((uint64)pa - KERNBASE) / PGSIZE] > 0)
   {
     pg_refcount[((uint64)pa - KERNBASE) / PGSIZE]--;
+    release(&kmem.reflock);
     return;
   }
+  release(&kmem.reflock);
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
@@ -90,17 +94,25 @@ void krefinc(void *pa)
 {
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("krefinc");
+  acquire(&kmem.reflock);
   pg_refcount[((uint64)pa - KERNBASE) / PGSIZE]++;
+  release(&kmem.reflock);
 }
-void krefdec(void *pa)
+uint16 krefdec(void *pa)
 {
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("krefdec");
+  uint16 ref=pg_refcount[((uint64)pa - KERNBASE) / PGSIZE];
+  if(ref==0)
+    return 0;
+  acquire(&kmem.reflock);
   pg_refcount[((uint64)pa - KERNBASE) / PGSIZE]--;
+  release(&kmem.reflock);
+  return ref;
 }
-uint16 kref(void *pa)
-{
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
-    panic("kref");
-  return pg_refcount[((uint64)pa - KERNBASE) / PGSIZE];
-}
+// uint16 kref(void *pa)
+// {
+//   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+//     panic("kref");
+//   return pg_refcount[((uint64)pa - KERNBASE) / PGSIZE];
+// }

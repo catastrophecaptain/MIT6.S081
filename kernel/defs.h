@@ -64,8 +64,7 @@ void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
 void            krefinc(void *);
-void            krefdec(void *);
-uint16            kref(void *);
+uint16          krefdec(void *);
 
 // log.c
 void            initlog(int, struct superblock*);
