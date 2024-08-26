@@ -25,3 +25,5 @@ barrier
 .DS_Store
 *.dSYM
 *.pcap
+time.txt
+.vscode/
