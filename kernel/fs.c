@@ -436,8 +436,8 @@ bmap(struct inode *ip, uint bn)
       if(addr == 0){
         brelse(bp);
         if(alloc){
-          ip->addrs[NDIRECT+1] = 0;
           bfree(ip->dev, ip->addrs[NDIRECT+1]);
+          ip->addrs[NDIRECT+1] = 0;
         }
         return 0;
       }
@@ -468,6 +468,7 @@ itrunc(struct inode *ip)
 {
   int i, j;
   struct buf *bp;
+  struct buf *bp1;
   uint *a;
   uint *b;
 
@@ -493,6 +494,7 @@ itrunc(struct inode *ip)
   if(ip->addrs[NDIRECT+1]){
     bp = bread(ip->dev, ip->addrs[NDIRECT+1]);
     a = (uint*)bp->data;
+    bp1=bp;
     for(i = 0; i < NINDIRECT; i++){
       if(a[i]){
         bp = bread(ip->dev, a[i]);
@@ -505,6 +507,7 @@ itrunc(struct inode *ip)
         bfree(ip->dev, a[i]);
       }
     }
+    brelse(bp1);
     bfree(ip->dev, ip->addrs[NDIRECT+1]);
     ip->addrs[NDIRECT+1] = 0;
   }
