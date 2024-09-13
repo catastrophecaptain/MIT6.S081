@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -67,7 +68,57 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  }
+  else if (r_scause() == 15)
+  {
+    uint64 addr = PGROUNDDOWN(r_stval());
+    uint64 *pte = walk(p->pagetable, addr, 0);
+    if (pte && *pte & PTE_V)
+    {
+      goto other;
+    }
+    uint64 find = 0;
+    struct VMA *vma = 0;
+    for (int i = 0; i < MAXVMA; i++)
+    {
+      if (p->vma[i].start <= addr && p->vma[i].start + p->vma[i].len >= addr)
+      {
+        find = 1;
+        vma = &p->vma[i];
+        break;
+      }
+    }
+    if (find)
+    {
+      // allocate a new page for the faulting address
+      uint64 pa = kalloc();
+      if (pa == 0)
+      {
+        printf("usertrap(): out of memory\n");
+        setkilled(p);
+      }
+      memset((void *)pa, 0, PGSIZE);
+
+      // read the page from the file
+      struct file *f = p->ofile[vma->fd];
+      readi(f->ip, 0, (char *)pa, PGSIZE, vma->foff + addr - vma->start);
+
+      // map the page in the address space
+      if (mappages(p->pagetable, addr, PGSIZE, pa, vma->prot) != 0)
+      {
+        printf("usertrap(): mappages failed\n");
+        kfree((void *)pa);
+        setkilled(p);
+      }
+    }
+    else
+    {
+      goto other;
+    }
+  }
+  else
+  {
+  other:
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     setkilled(p);

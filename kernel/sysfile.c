@@ -566,6 +566,8 @@ sys_mmap(void)
   // lazy allocation and increase sz
   p->sz += len;
 
+  // add file reference
+  filedup(f);
   // return start address
   return vma->start;
 }
