@@ -503,7 +503,8 @@ sys_pipe(void)
   }
   return 0;
 }
-int sys_symlink(char *target, char *path)
+uint64
+sys_symlink(void)
 {
-  
+    return 0;
 }

@@ -15,7 +15,7 @@ int mknod(const char*, short, short);
 int unlink(const char*);
 int fstat(int fd, struct stat*);
 int link(const char*, const char*);
-int symlink(char*, char*);
+int symlink(const char*,const char*);
 int mkdir(const char*);
 int chdir(const char*);
 int dup(int);
