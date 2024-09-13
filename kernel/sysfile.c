@@ -503,3 +503,174 @@ sys_pipe(void)
   }
   return 0;
 }
+// addr = 0 offset = 0 len%PGSIZE = 0
+uint64
+sys_mmap(void)
+{
+  struct VMA* vma;
+  struct proc* p = myproc();
+  // find free VMA
+  for(int i = 0; i < MAXVMA; i++){
+    if(p->vma[i].len==0){
+      vma = &p->vma[i];
+      break;
+    }
+  }
+
+  // get arguments
+  // void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset);
+  uint64 addr, len, prot, flags, fd, offset;
+  struct file *f;
+  argaddr(0, &addr);
+  argaddr(1, &len);
+  argaddr(2, &prot);
+  argaddr(3, &flags);
+  if(argfd(4,&fd,&f) < 0)
+    return -1;
+  argaddr(5, &offset);
+  // uint64 vmaread= prot & PROT_READ;
+  uint64 vmawrite= (prot & PROT_WRITE) && (flags & MAP_SHARED);
+
+  // check if addr is valid
+  if(addr != 0){
+    // panic("mmap: addr is not 0");
+    return -1;
+  }
+
+  // check if offset 
+  if(offset !=0){
+    // panic("mmap: offset is not 0");
+    return -1;
+  }
+
+  // check if len is multiple of PGSIZE
+  if(len%PGSIZE != 0){
+    // panic("mmap: len is not multiple of PGSIZE");
+    return -1;
+  }
+
+  // check if the file is opened for writing
+  if(!f->writable&& vmawrite){
+    // panic("mmap: file is not opened for writing");
+    return -1;
+  }
+
+  // set vma
+  vma->start = p->sz;
+  vma->len = len;
+  vma->prot = prot;
+  vma->flags = flags;
+  vma->fd = fd;
+  vma->foff = offset;
+
+  // lazy allocation and increase sz
+  p->sz += len;
+
+  // return start address
+  return vma->start;
+}
+uint64
+sys_munmap(void)
+{
+  // int munmap(void *addr, size_t len);
+  struct proc *p = myproc();
+  uint64 addr, len;
+
+  // get arguments
+  argaddr(0, &addr);
+  argaddr(1, &len);
+
+  // find the vma
+  struct VMA *vma = 0;
+  uint find = 0;
+  uint is_start = 0;
+  for (int i = 0; i < MAXVMA; i++)
+  {
+    if (p->vma[i].start == addr)
+    {
+      vma = &p->vma[i];
+      find = 1;
+      is_start = 1;
+      break;
+    }
+    if (p->vma[i].start + p->vma[i].len == addr)
+    {
+      vma = &p->vma[i];
+      find = 1;
+      break;
+    }
+  }
+  if (!find)
+  {
+    // panic("munmap: vma not found");
+    return -1;
+  }
+
+  // check if len is multiple of PGSIZE
+  if (len % PGSIZE != 0)
+  {
+    // panic("munmap: len is not multiple of PGSIZE");
+    return -1;
+  }
+
+  // unmap
+  if (len >= vma->len)
+  {
+    if ((vma->prot & PROT_WRITE) && (vma->flags & MAP_SHARED))
+      vma_writeback(vma, addr, vma->len, 0);
+    uvmunmap(p->pagetable, addr, vma->len, 1);
+    vma->len = 0;
+  }
+  else
+  {
+    if (is_start)
+    {
+      if ((vma->prot & PROT_WRITE) && (vma->flags & MAP_SHARED))
+        vma_writeback(vma, addr, len, 0);
+      uvmunmap(p->pagetable, addr, len, 1);
+      vma->start += len;
+      vma->foff += len;
+      vma->len -= len;
+    }
+    else
+    {
+      if ((vma->prot & PROT_WRITE) && (vma->flags & MAP_SHARED))
+        vma_writeback(vma, addr, len, vma->len - len);
+      uvmunmap(p->pagetable, addr, len, 1);
+      vma->len -= len;
+    }
+  }
+  return 0;
+}
+void vma_writeback(struct VMA *vma, uint64 addr, uint64 len, uint64 offset)
+{
+  struct proc *p = myproc();
+  struct file *f = p->ofile[vma->fd];
+  uint64 offset = addr - vma->start;
+  uint64 n = len;
+  uint64 off = vma->foff + offset;
+  int max = ((MAXOPBLOCKS - 1 - 1 - 2) / 2) * BSIZE;
+  int i = 0;
+  int r = 0;
+  while (i < n)
+  {
+    int n1 = n - i;
+    if (n1 > max)
+      n1 = max;
+
+    begin_op();
+    ilock(f->ip);
+    if ((r = writei(f->ip, 1, addr + i, off, n1)) > 0)
+      off += r;
+    iunlock(f->ip);
+    end_op();
+
+    if (r != n1)
+    {
+      panic("writei");
+      break;
+    }
+    i += r;
+  }
+}
+  
