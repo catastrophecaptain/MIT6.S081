@@ -507,19 +507,24 @@ sys_pipe(void)
 uint64
 sys_mmap(void)
 {
-  struct VMA* vma;
+  struct VMA* vma=0;
   struct proc* p = myproc();
+  int find = 0;
   // find free VMA
   for(int i = 0; i < MAXVMA; i++){
     if(p->vma[i].len==0){
+      find=1;
       vma = &p->vma[i];
       break;
     }
   }
-
+  // check if there is no free VMA
+  if(!find)
+    return -1;
   // get arguments
   // void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset);
-  uint64 addr, len, prot, flags, fd, offset;
+  uint64 addr, len, prot, flags, offset;
+  int fd;
   struct file *f;
   argaddr(0, &addr);
   argaddr(1, &len);
@@ -571,6 +576,38 @@ sys_mmap(void)
   // return start address
   return vma->start;
 }
+void vma_writeback(struct VMA *vma, uint64 addr, uint64 len)
+{
+  struct proc *p = myproc();
+  struct file *f = p->ofile[vma->fd];
+  uint64 offset = addr - vma->start;
+  uint64 n = len;
+  uint64 off = vma->foff + offset;
+  int max = ((MAXOPBLOCKS - 1 - 1 - 2) / 2) * BSIZE;
+  int i = 0;
+  int r = 0;
+  while (i < n)
+  {
+    int n1 = n - i;
+    if (n1 > max)
+      n1 = max;
+
+    begin_op();
+    ilock(f->ip);
+    if ((r = writei(f->ip, 1, addr + i, off, n1)) > 0)
+      off += r;
+    iunlock(f->ip);
+    end_op();
+
+    if (r != n1)
+    {
+      panic("writei");
+      break;
+    }
+    i += r;
+  }
+}
+  
 uint64
 sys_munmap(void)
 {
@@ -619,7 +656,7 @@ sys_munmap(void)
   if (len >= vma->len)
   {
     if ((vma->prot & PROT_WRITE) && (vma->flags & MAP_SHARED))
-      vma_writeback(vma, addr, vma->len, 0);
+      vma_writeback(vma, addr, vma->len);
     uvmunmap(p->pagetable, addr, vma->len, 1);
     vma->len = 0;
   }
@@ -628,7 +665,7 @@ sys_munmap(void)
     if (is_start)
     {
       if ((vma->prot & PROT_WRITE) && (vma->flags & MAP_SHARED))
-        vma_writeback(vma, addr, len, 0);
+        vma_writeback(vma, addr, len);
       uvmunmap(p->pagetable, addr, len, 1);
       vma->start += len;
       vma->foff += len;
@@ -637,42 +674,10 @@ sys_munmap(void)
     else
     {
       if ((vma->prot & PROT_WRITE) && (vma->flags & MAP_SHARED))
-        vma_writeback(vma, addr, len, vma->len - len);
+        vma_writeback(vma, addr, len);
       uvmunmap(p->pagetable, addr, len, 1);
       vma->len -= len;
     }
   }
   return 0;
 }
-void vma_writeback(struct VMA *vma, uint64 addr, uint64 len, uint64 offset)
-{
-  struct proc *p = myproc();
-  struct file *f = p->ofile[vma->fd];
-  uint64 offset = addr - vma->start;
-  uint64 n = len;
-  uint64 off = vma->foff + offset;
-  int max = ((MAXOPBLOCKS - 1 - 1 - 2) / 2) * BSIZE;
-  int i = 0;
-  int r = 0;
-  while (i < n)
-  {
-    int n1 = n - i;
-    if (n1 > max)
-      n1 = max;
-
-    begin_op();
-    ilock(f->ip);
-    if ((r = writei(f->ip, 1, addr + i, off, n1)) > 0)
-      off += r;
-    iunlock(f->ip);
-    end_op();
-
-    if (r != n1)
-    {
-      panic("writei");
-      break;
-    }
-    i += r;
-  }
-}
-  

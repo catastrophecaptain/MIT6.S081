@@ -3,8 +3,10 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
+#include "sleeplock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fs.h"
 #include "file.h"
 
 struct spinlock tickslock;
@@ -69,11 +71,11 @@ usertrap(void)
   } else if((which_dev = devintr()) != 0){
     // ok
   }
-  else if (r_scause() == 15)
+  else if (r_scause() == 13)
   {
     uint64 addr = PGROUNDDOWN(r_stval());
     uint64 *pte = walk(p->pagetable, addr, 0);
-    if (pte && *pte & PTE_V)
+    if (pte && (*pte & PTE_V))
     {
       goto other;
     }
@@ -91,7 +93,7 @@ usertrap(void)
     if (find)
     {
       // allocate a new page for the faulting address
-      uint64 pa = kalloc();
+      uint64 pa = (uint64)kalloc();
       if (pa == 0)
       {
         printf("usertrap(): out of memory\n");
@@ -101,7 +103,7 @@ usertrap(void)
 
       // read the page from the file
       struct file *f = p->ofile[vma->fd];
-      readi(f->ip, 0, (char *)pa, PGSIZE, vma->foff + addr - vma->start);
+      readi(f->ip, 0, pa, PGSIZE, vma->foff + addr - vma->start);
 
       // map the page in the address space
       if (mappages(p->pagetable, addr, PGSIZE, pa, vma->prot) != 0)
