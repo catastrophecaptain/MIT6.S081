@@ -8,6 +8,7 @@
 #include "defs.h"
 #include "fs.h"
 #include "file.h"
+#include "fcntl.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -83,7 +84,7 @@ usertrap(void)
     struct VMA *vma = 0;
     for (int i = 0; i < MAXVMA; i++)
     {
-      if (p->vma[i].start <= addr && p->vma[i].start + p->vma[i].len >= addr)
+      if (p->vma[i].start <= addr && p->vma[i].start + p->vma[i].len > addr && p->vma[i].len!=0)
       {
         find = 1;
         vma = &p->vma[i];
@@ -102,11 +103,14 @@ usertrap(void)
       memset((void *)pa, 0, PGSIZE);
 
       // read the page from the file
-      struct file *f = p->ofile[vma->fd];
-      readi(f->ip, 0, pa, PGSIZE, vma->foff + addr - vma->start);
-
-      // map the page in the address space
-      if (mappages(p->pagetable, addr, PGSIZE, pa, vma->prot) != 0)
+      struct file *f = vma->f;
+      readi(f->ip, 0, pa,vma->foff + addr - vma->start ,PGSIZE);
+      int perm =PTE_U | PTE_V;
+      if (vma->prot & PROT_READ)
+        perm |= PTE_R;
+      if (vma->prot & PROT_WRITE)
+        perm |= PTE_W;
+      if (mappages(p->pagetable, addr, PGSIZE, pa, perm) != 0)
       {
         printf("usertrap(): mappages failed\n");
         kfree((void *)pa);
@@ -132,7 +136,6 @@ usertrap(void)
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
-
   usertrapret();
 }
 

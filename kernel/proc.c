@@ -6,6 +6,7 @@
 #include "proc.h"
 #include "defs.h"
 
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -16,6 +17,7 @@ int nextpid = 1;
 struct spinlock pid_lock;
 
 extern void forkret(void);
+extern uint64 munmap(uint64 addr, uint64 len);
 static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
@@ -306,6 +308,16 @@ fork(void)
   for(i = 0; i < NOFILE; i++)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
+  
+  // copy VMA
+  for(i = 0; i < MAXVMA; i++)
+  {
+    np->vma[i] = p->vma[i];
+    if (np->vma[i].len!=0)
+    {
+      filedup(np->vma[i].f);
+    }
+  }
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
@@ -357,6 +369,11 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+  for(int i = 0; i < MAXVMA; i++){
+    if(p->vma[i].f){
+      munmap(p->vma[i].start, p->vma[i].len);
     }
   }
 

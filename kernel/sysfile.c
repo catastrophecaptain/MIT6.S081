@@ -554,6 +554,11 @@ sys_mmap(void)
     return -1;
   }
 
+  if(len == 0){
+    // panic("mmap: len is 0");
+    return -1;
+  }
+
   // check if the file is opened for writing
   if(!f->writable&& vmawrite){
     // panic("mmap: file is not opened for writing");
@@ -565,7 +570,7 @@ sys_mmap(void)
   vma->len = len;
   vma->prot = prot;
   vma->flags = flags;
-  vma->fd = fd;
+  vma->f = f;
   vma->foff = offset;
 
   // lazy allocation and increase sz
@@ -578,12 +583,11 @@ sys_mmap(void)
 }
 void vma_writeback(struct VMA *vma, uint64 addr, uint64 len)
 {
-  struct proc *p = myproc();
-  struct file *f = p->ofile[vma->fd];
+  struct file *f = vma->f;
   uint64 offset = addr - vma->start;
   uint64 n = len;
   uint64 off = vma->foff + offset;
-  int max = ((MAXOPBLOCKS - 1 - 1 - 2) / 2) * BSIZE;
+  int max = PGSIZE;
   int i = 0;
   int r = 0;
   while (i < n)
@@ -594,45 +598,50 @@ void vma_writeback(struct VMA *vma, uint64 addr, uint64 len)
 
     begin_op();
     ilock(f->ip);
-    if ((r = writei(f->ip, 1, addr + i, off, n1)) > 0)
-      off += r;
+    uint64 addr_pg=PGROUNDDOWN(addr+i);
+    pte_t *pte = walk(myproc()->pagetable, addr_pg, 0);
+    if (pte == 0||(*pte & PTE_V) == 0)
+    {
+      off+=n1;
+      i+=n1;
+      iunlock(f->ip);
+      end_op();
+      continue;  
+    }
+
+    // if ((r = writei(f->ip, 1, addr + i, off, n1)) > 0)
+    //   off += r;
+    r = writei(f->ip, 1, addr + i, off, n1);
+    off += r;
     iunlock(f->ip);
     end_op();
 
-    if (r != n1)
-    {
-      panic("writei");
-      break;
-    }
+    // if (r != n1)
+    // {
+    //   panic("writei");
+    //   break;
+    // }
     i += r;
   }
 }
   
-uint64
-sys_munmap(void)
+uint64 munmap(uint64 addr, uint64 len)
 {
-  // int munmap(void *addr, size_t len);
   struct proc *p = myproc();
-  uint64 addr, len;
-
-  // get arguments
-  argaddr(0, &addr);
-  argaddr(1, &len);
-
   // find the vma
   struct VMA *vma = 0;
   uint find = 0;
   uint is_start = 0;
   for (int i = 0; i < MAXVMA; i++)
   {
-    if (p->vma[i].start == addr)
+    if (p->vma[i].start == addr &&  p->vma[i].len!=0)
     {
       vma = &p->vma[i];
       find = 1;
       is_start = 1;
       break;
     }
-    if (p->vma[i].start + p->vma[i].len == addr)
+    if (p->vma[i].start + p->vma[i].len == addr + len &&  p->vma[i].len!=0)
     {
       vma = &p->vma[i];
       find = 1;
@@ -659,6 +668,7 @@ sys_munmap(void)
       vma_writeback(vma, addr, vma->len);
     uvmunmap(p->pagetable, addr, vma->len, 1);
     vma->len = 0;
+    fileclose(vma->f);
   }
   else
   {
@@ -680,4 +690,80 @@ sys_munmap(void)
     }
   }
   return 0;
+}
+uint64
+sys_munmap(void)
+{
+  // int munmap(void *addr, size_t len);
+  uint64 addr, len;
+
+  // get arguments
+  argaddr(0, &addr);
+  argaddr(1, &len);
+
+  return munmap(addr, len);
+
+  // // find the vma
+  // struct VMA *vma = 0;
+  // uint find = 0;
+  // uint is_start = 0;
+  // for (int i = 0; i < MAXVMA; i++)
+  // {
+  //   if (p->vma[i].start == addr &&  p->vma[i].len!=0)
+  //   {
+  //     vma = &p->vma[i];
+  //     find = 1;
+  //     is_start = 1;
+  //     break;
+  //   }
+  //   if (p->vma[i].start + p->vma[i].len == addr + len &&  p->vma[i].len!=0)
+  //   {
+  //     vma = &p->vma[i];
+  //     find = 1;
+  //     break;
+  //   }
+  // }
+  // if (!find)
+  // {
+  //   // panic("munmap: vma not found");
+  //   return -1;
+  // }
+
+  // // check if len is multiple of PGSIZE
+  // if (len % PGSIZE != 0)
+  // {
+  //   // panic("munmap: len is not multiple of PGSIZE");
+  //   return -1;
+  // }
+
+  // // unmap
+  // if (len >= vma->len)
+  // {
+  //   if ((vma->prot & PROT_WRITE) && (vma->flags & MAP_SHARED))
+  //     vma_writeback(vma, addr, vma->len);
+  //   printf(" 11 ");
+  //   uvmunmap(p->pagetable, addr, vma->len, 1);
+  //   vma->len = 0;
+  //   fileclose(vma->f);
+  // }
+  // else
+  // {
+  //   if (is_start)
+  //   {
+  //     if ((vma->prot & PROT_WRITE) && (vma->flags & MAP_SHARED))
+  //       vma_writeback(vma, addr, len);
+  //     uvmunmap(p->pagetable, addr, len, 1);
+  //     vma->start += len;
+  //     vma->foff += len;
+  //     vma->len -= len;
+  //   }
+  //   else
+  //   {
+  //     if ((vma->prot & PROT_WRITE) && (vma->flags & MAP_SHARED))
+  //       vma_writeback(vma, addr, len);
+  //     uvmunmap(p->pagetable, addr, len, 1);
+  //     vma->len -= len;
+  //   }
+  // }
+  // return 0;
 }
